@@ -255,4 +255,4 @@ plt.show()
 
 
 name = input("Select a name with which to save the policy net as:\n")
-torch.save(target_net, name + ".pth")
+torch.save(target_net,"Trained_Networks/" + name + ".pth")

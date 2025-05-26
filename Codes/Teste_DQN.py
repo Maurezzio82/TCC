@@ -1,4 +1,4 @@
-from amatrix_to_env import Environment
+from amatrix_to_env import Environment, State
 import numpy as np
 import math
 import random
@@ -81,6 +81,7 @@ while not terminated:
 terminated = False
 env.reset()
 env.solve()
+
 current_state = env.current_state
 policy = env.optimal_policy
 true_total_reward = 0
@@ -90,8 +91,25 @@ while not terminated:
     _, reward, terminated = env.step(action)
     current_state = env.current_state
     true_total_reward += reward
+ 
 
 if true_total_reward >= total_reward:
-    print('sucesso total')
+    print('optimal policy has been found')
 else:
-    print('faz o L')
+    print('optimal policy has not been found')
+    
+
+
+state_list = np.zeros(env.n_states)
+V_Qnet = np.zeros(env.n_states)
+for i in range(env.n_states):
+    state_list[i] = 1
+    pytorch_state = torch.tensor(state_list, dtype=torch.float32, device=device).unsqueeze(0)
+    V_Qnet[i] = policy_net(pytorch_state).max().item()
+    state_list = np.zeros(env.n_states)
+
+diff_norm = np.linalg.norm(env.Valuefunc - V_Qnet)/env.n_states
+print(diff_norm)
+
+""" current_state = 
+V_Qnet = [] """

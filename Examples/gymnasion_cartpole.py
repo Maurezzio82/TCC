@@ -9,7 +9,6 @@ from itertools import count
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 
 env = gym.make("CartPole-v1")
 
@@ -188,7 +187,7 @@ def optimize_model():
 if torch.cuda.is_available() or torch.backends.mps.is_available():
     num_episodes = 600
 else:
-    num_episodes = 300
+    num_episodes = 100
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
@@ -266,5 +265,9 @@ while not done:
     done = terminated or truncated
 
 env.close()  # Close environment after testing
-name = input("Select a name with which to save the policy net as:\n")
-torch.save(target_net, name + ".pth")
+
+x = input("Do you wish to save the policy network? y/n")
+
+if x == 'y':
+    name = input("Select a name with which to save the policy net:\n")
+    torch.save(target_net,"Trained_Networks/" + name + ".pth")

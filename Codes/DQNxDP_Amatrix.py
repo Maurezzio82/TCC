@@ -205,11 +205,29 @@ def optimize_model():
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
     
+def MSE_ValueFunction():
+    state_list = np.zeros(env.n_states)
+    V_Qnet = np.zeros(env.n_states)
+    for i in range(env.n_states):
+        state_list[i] = 1
+        pytorch_state = torch.tensor(state_list, dtype=torch.float32, device=device).unsqueeze(0)
+        V_Qnet[i] = policy_net(pytorch_state).max().item()
+        state_list = np.zeros(env.n_states)
+    
+    # Calculates the average of the squared difference between the approximate Value 
+    # function the Qnetwork found to the actual true Value Function found through DP
+    avg_err = np.linalg.norm(env.Valuefunc - V_Qnet)/env.n_states
+    
+    return avg_err.item()
+    
 if torch.cuda.is_available() or torch.backends.mps.is_available():
     num_episodes = 600
 else:
-    num_episodes = 100
+    num_episodes = 600
 
+decimation = 2
+
+MSE_array = []
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
     state = env.reset()
@@ -247,12 +265,28 @@ for i_episode in range(num_episodes):
             total_rewards.append(current_reward)
             plot_rewards()
             break
+        
+    if i_episode % decimation == 0:
+        MSE = MSE_ValueFunction()
+        MSE_array.append(MSE)
+        
+        
 
-print('Complete')
+print('Training complete')
 plot_rewards(show_result=True)
 plt.ioff()
 plt.show()
 
+plt.ion()
+plt.plot(MSE_array)
+plt.xlabel(f'Episodes (x{decimation})')
+plt.ylabel('|max{Q}-V|')
+plt.title('Error in the Value Function estimated by the Q-Network')
 
-name = input("Select a name with which to save the policy net as:\n")
-torch.save(target_net,"Trained_Networks/" + name + ".pth")
+#plt.savefig('MSE_of_estimated_Value_Function.png', dpi=300)
+
+x = input("Do you wish to save the policy network? y/n")
+
+if x == 'y':
+    name = input("Select a name with which to save the policy net:\n")
+    torch.save(target_net,"Trained_Networks/" + name + ".pth")

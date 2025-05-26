@@ -67,7 +67,9 @@ class Environment:
                 
                 j = 0
                 path = []
-                
+        
+        self.Valuefunc = V
+        
         while j != len(states)-1:
             j = states[j].children[int(policy[j])]
             path.append(j)      

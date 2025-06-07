@@ -280,10 +280,10 @@ plt.show()
 plt.ion()
 plt.plot(MSE_array)
 plt.xlabel(f'Episodes (x{decimation})')
-plt.ylabel('|max{Q}-V|')
-plt.title('Error in the Value Function estimated by the Q-Network')
+plt.ylabel('|max{Q}-V|/n')
+plt.title('Mean error in the Value Function estimated by the Q-Network')
 
-#plt.savefig('MSE_of_estimated_Value_Function.png', dpi=300)
+plt.savefig('MSE_of_estimated_Value_Function.png', dpi=300)
 
 x = input("Do you wish to save the policy network? y/n")
 

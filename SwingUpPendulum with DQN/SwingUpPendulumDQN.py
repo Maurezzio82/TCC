@@ -1,4 +1,4 @@
-import gymnasium as gym
+from SwingUpPendulumEnvDQL import SwingUpPendulum
 import math
 import random
 import matplotlib
@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-env = gym.make("CartPole-v1")
+env = SwingUpPendulum()
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -51,8 +51,8 @@ class DQN(nn.Module):
 
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, 128)
-        self.layer2 = nn.Linear(128, 128)
+        self.layer1 = nn.Linear(n_observations, 256)
+        self.layer2 = nn.Linear(256, 128)
         self.layer3 = nn.Linear(128, n_actions)
 
     # Called with either one element to determine next action, or a batch
@@ -76,7 +76,7 @@ EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 1000
 TAU = 0.005
-LR = 1e-4
+LR = 1e-5
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -111,25 +111,30 @@ def select_action(state):
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
 
-episode_durations = []
+episode_cost = []
+episode_duration = []
 
-
-def plot_durations(show_result=False):
+def plot_cost(show_result=False):
     plt.figure(1)
-    durations_t = torch.tensor(episode_durations, dtype=torch.float)
+    cost_t = torch.tensor(episode_cost, dtype=torch.float)
+    duration_t = torch.tensor(episode_duration, dtype=torch.float)
     if show_result:
         plt.title('Result')
     else:
         plt.clf()
         plt.title('Training...')
     plt.xlabel('Episode')
-    plt.ylabel('Duration')
-    plt.plot(durations_t.numpy())
-    # Take 100 episode averages and plot them too
-    if len(durations_t) >= 100:
-        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
+    plt.ylabel('Cost')
+    plt.plot(cost_t.numpy(), label='Cost')
+    if duration_t != []:
+        plt.plot(duration_t.numpy(), label='Duration')
+    
+    """    
+    # Take 100 episode averages and plot them too 
+    means = cost_t.unfold(0, 100, 1).mean(1).view(-1)
+    means = torch.cat((torch.zeros(99), means))
+    plt.plot(means.numpy()) 
+    """
 
     plt.pause(0.001)  # pause a bit so that plots are updated
     if is_ipython:
@@ -186,12 +191,16 @@ def optimize_model():
     optimizer.step()
     
 if torch.cuda.is_available() or torch.backends.mps.is_available():
-    num_episodes = 600
+    num_episodes = 1200
 else:
-    num_episodes = 600
+    num_episodes = 1200
+    
+    
+env.max_it = env.max_it // 2            # reduces the maximal simulation time to 10 seconds
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
+    total_cost = 0
     state, info = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
@@ -222,13 +231,18 @@ for i_episode in range(num_episodes):
             target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
         target_net.load_state_dict(target_net_state_dict)
 
+        total_cost -= reward
         if done:
-            episode_durations.append(t + 1)
-            plot_durations()
+            if env.stage == 2:
+                print('stage 2 has been reached')
+                episode_duration.append(t+1)
+            
+            episode_cost.append(total_cost)
+            plot_cost()
             break
 
 print('Complete')
-plot_durations(show_result=True)
+plot_cost(show_result=True)
 plt.ioff()
 plt.show()
 
@@ -240,15 +254,23 @@ import time
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Create the environment
-env = gym.make("CartPole-v1", render_mode="human")  # Use "human" to visualize
 state, _ = env.reset()
 
 # Convert state to tensor
 state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
 
+
+thetas = []
+theta_dots = []
+torques = []
+
 # Run a test episode
 done = False
-while not done:
+sim_max_it = env.max_it // 4
+it = 0
+
+while not done and it < sim_max_it:
+    it += 1
     with torch.no_grad():  # No gradient needed for testing
         action = policy_net(state).max(1).indices.view(1, 1).item()
 
@@ -257,13 +279,30 @@ while not done:
 
     # Update state
     state = torch.tensor(next_state, dtype=torch.float32, device=device).unsqueeze(0)
+    
+    #save states and actions for plotting
+    thetas.append(next_state[0])
+    theta_dots.append(next_state[1])
+    torques.append(env.valid_actions[action]/10)
 
     # Render environment
     time.sleep(0.02)  # Small delay to slow down rendering
-    env.render()
-
+    
     # Check if episode is over
     done = terminated or truncated
+
+plt.figure(figsize=(10, 4))
+plt.plot(thetas, label='θ')
+plt.plot(theta_dots, label='ω')
+plt.plot(torques, label = 'τ=u')
+plt.xlabel('Time step')
+plt.ylabel('State value')
+plt.title('State Variables Over Time')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
 
 env.close()  # Close environment after testing
 

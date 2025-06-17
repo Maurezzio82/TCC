@@ -4,6 +4,9 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from random import uniform
 
+def wrap_to_pi(theta):
+    return ((theta + np.pi) % (2 * np.pi)) - np.pi
+
 class SwingUpPendulum(gym.Env):
     metadata = {'render.modes': ['console']}
     
@@ -21,36 +24,38 @@ class SwingUpPendulum(gym.Env):
 
         # Action and observation space
         # Control input u is bounded
-        self.valid_actions = np.array([-9,0,9])
-        #self.valid_actions = np.arange(-9, 10)
+        self.valid_actions = np.array([-5,0,5])
         self.action_space = spaces.Discrete(len(self.valid_actions))
         
-        # Observation: angle and angular velocity
+        # Observation: sin and cos of the angle and angular velocity
         self.observation_space = spaces.Box(
-            low=np.array([0.0, -np.inf], dtype=np.float32),
-            high=np.array([2 * np.pi, np.inf], dtype=np.float32),
-            dtype=np.float32
-        )
+            low=np.array([-1, -np.inf], dtype=np.float32),
+            high=np.array([1, np.inf], dtype=np.float32),
+            dtype=np.float32)
         
-        self.stage = 1                              
+        self.reached_upright = False                              
         self.state = None
         self.current_it = 0                         #current iteration updated in the reset and step functions
-        self.max_it = 20/self.dt                    #max 20s of simulation time (for dt = 0.025, max_it = 800)
+        self.max_it = 15/self.dt                    #max 15s of simulation time (for dt = 0.025, max_it = 800)
 
 
 
-    def reset(self, seed=None, options=None, Stage2 = False):
+    def reset(self, seed=None, options=None, start_upright = False):
         super().reset(seed=seed)
         self.current_it = 0
-        angle = uniform(-0.2, 0.2)           
-        if Stage2:
-            self.stage = 2
+        angle = uniform(-0.2, 0.2)
+        if start_upright:
+            self.reached_upright = 2
             angle = np.pi + uniform(-0.1, 0.1)
                    
         self.state = np.array([angle, 0.0], dtype=np.float32)  # initial position and velocity
-        self.stage = 1
+        self.reached_upright = False
         
-        return self.state, {}
+        sin_theta = np.sin(angle)
+        cos_theta = np.cos(angle)
+        self.observation = np.array([sin_theta, cos_theta, 0.0], dtype=np.float32)
+        
+        return self.observation, {}
 
     def dynamics(self, t, y, u):
         x1, x2 = y
@@ -69,113 +74,46 @@ class SwingUpPendulum(gym.Env):
         self.state = sol.y[:, -1]
         #print(type(self.state))
 
-        # WrapToPi
-        positiveInput = self.state[0] > 0
-        self.state[0] = self.state[0] % (2*np.pi)
-        if self.state[0]==0 and positiveInput:
-            self.state[0] = 2*np.pi
-
-
         terminated = False
         truncated = False
 
-        objective = abs(self.state[0]-np.pi) < 0.1 and abs(self.state[1]) < 0.5        
+        # WrapToPi
+        self.state[0] = wrap_to_pi(self.state[0])
         
-        if objective:
-            self.stage = 2
+        theta, theta_dot = self.state
+        theta_error = wrap_to_pi(theta - np.pi)
+
+
+        upright_now = abs(theta_error) < 0.1 and abs(theta_dot) < 0.5        
+        
+        if upright_now:
+            self.reached_upright = True
 
         # Reward System
-        if self.stage == 1:
-            reward = -(np.abs(u)*(np.pi-self.state[0])**2 + 0.2*self.state[1]**2)
-            if self.state[0] > np.pi/2 and self.state[0] < 3*np.pi/2:
-                reward += 50
-            
-            if abs(self.state[0]-np.pi) < 0.1:
-                reward += 50
         
-        if self.stage == 2:
-            reward = 100 - (np.abs(u)*(np.pi-self.state[0])**2 + 0.2*self.state[1]**2)
-            
-            PendulumFell = np.abs(self.state[0]-np.pi) >= np.pi/2
-            
-            if PendulumFell:
-                terminated = True
-                reward -= 10
+        # Directional shaping: encourage velocity toward upright
+        direction_bonus = -0.5 * theta_dot * np.tanh(10 * theta_error)
+
+        # Smooth reward shaping toward upright
+        shaping_reward = 100 / (1 + (theta_error / 0.2)**2)
+
+        # Cost terms
+        cost = (theta_error)**2 + 0.2 * theta_dot**2 + 0.1 * u**2
+        reward = shaping_reward + direction_bonus - cost
+
+        if self.reached_upright and abs(theta_error) >= np.pi/2:
+            terminated = True
 
         if self.current_it >= self.max_it:
             truncated = True
-
-        return self.state, reward, terminated, truncated, {}
+        
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        self.observation = np.array([sin_theta, cos_theta, theta_dot], dtype=np.float32)
+        return self.observation, reward, terminated, truncated, {}
 
     def render(self):
         print(f"Position: {self.state[0]:.2f}, Velocity: {self.state[1]:.2f}")
 
     def close(self):
         pass
-
-
-""" 
-
-env = SwingUpPendulum()
-env.reset()
-
-n_actions = env.action_space.n
-
-for actionidx in range(n_actions):
-    x = env.valid_actions[actionidx]
-    if x == 0:
-        notorqueindex = actionidx
-        break
-
-import time
-
-# Teste do ambiente
-env = SwingUpPendulum()  
-
-# Reset
-obs, info = env.reset()
-done = False
-truncated = False
-
-elapsed_time = time.perf_counter()
-
-thetas = []
-theta_dots = []
-torques = []
-
-for episodes in range(1):
-    env.reset()
-    for step in range(800):
-        #env.render() 
-        action = env.action_space.sample()  # Take a random action
-        obs, reward, done, truncated, info = env.step(notorqueindex)
-
-        #print(f"Step: {step}, Action: {action}, Obs: {obs}, Reward: {reward}")
-        
-        thetas.append(obs[0])
-        theta_dots.append(obs[1])
-        
-        if done or truncated:
-            #print("Episode ended.")
-            break
-        
-import matplotlib.pyplot as plt
-
-
-plt.figure(figsize=(10, 4))
-plt.plot(thetas, label='θ')
-plt.plot(theta_dots, label='ω')
-plt.xlabel('Time step')
-plt.ylabel('State value')
-plt.title('State Variables Over Time')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
-env.close()
-
-elapsed_time = time.perf_counter() - elapsed_time
-
-print(elapsed_time)
- """

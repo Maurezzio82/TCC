@@ -49,11 +49,11 @@ class ReplayMemory(object):
     
 class DQN(nn.Module):
 
-    def __init__(self, n_observations, n_actions):
+    def __init__(self, n_observations, n_actions, n_l1 = 256, n_l2 = 128):
         super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, 256)
-        self.layer2 = nn.Linear(256, 128)
-        self.layer3 = nn.Linear(128, n_actions)
+        self.layer1 = nn.Linear(n_observations, n_l1)
+        self.layer2 = nn.Linear(n_l1, n_l2)
+        self.layer3 = nn.Linear(n_l2, n_actions)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
@@ -76,7 +76,7 @@ EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 1000
 TAU = 0.005
-LR = 1e-5
+LR = 1e-3
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -112,12 +112,10 @@ def select_action(state):
 
 
 episode_cost = []
-episode_duration = []
 
 def plot_cost(show_result=False):
     plt.figure(1)
     cost_t = torch.tensor(episode_cost, dtype=torch.float)
-    duration_t = torch.tensor(episode_duration, dtype=torch.float)
     if show_result:
         plt.title('Result')
     else:
@@ -126,15 +124,6 @@ def plot_cost(show_result=False):
     plt.xlabel('Episode')
     plt.ylabel('Cost')
     plt.plot(cost_t.numpy(), label='Cost')
-    if duration_t != []:
-        plt.plot(duration_t.numpy(), label='Duration')
-    
-    """    
-    # Take 100 episode averages and plot them too 
-    means = cost_t.unfold(0, 100, 1).mean(1).view(-1)
-    means = torch.cat((torch.zeros(99), means))
-    plt.plot(means.numpy()) 
-    """
 
     plt.pause(0.001)  # pause a bit so that plots are updated
     if is_ipython:
@@ -190,13 +179,8 @@ def optimize_model():
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
     
-if torch.cuda.is_available() or torch.backends.mps.is_available():
-    num_episodes = 1200
-else:
-    num_episodes = 1200
+num_episodes = 300
     
-    
-env.max_it = env.max_it // 2            # reduces the maximal simulation time to 10 seconds
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
@@ -233,9 +217,8 @@ for i_episode in range(num_episodes):
 
         total_cost -= reward
         if done:
-            if env.stage == 2:
-                print('stage 2 has been reached')
-                episode_duration.append(t+1)
+            if env.reached_upright:
+                print('Pendulum is upright')
             
             episode_cost.append(total_cost)
             plot_cost()
@@ -266,8 +249,9 @@ torques = []
 
 # Run a test episode
 done = False
-sim_max_it = env.max_it // 4
+sim_max_it = env.max_it
 it = 0
+max_torque = max(env.valid_actions)
 
 while not done and it < sim_max_it:
     it += 1
@@ -281,9 +265,9 @@ while not done and it < sim_max_it:
     state = torch.tensor(next_state, dtype=torch.float32, device=device).unsqueeze(0)
     
     #save states and actions for plotting
-    thetas.append(next_state[0])
-    theta_dots.append(next_state[1])
-    torques.append(env.valid_actions[action]/10)
+    thetas.append(env.state[0])
+    theta_dots.append(env.state[1])
+    torques.append(env.valid_actions[action]/max_torque)
 
     # Render environment
     time.sleep(0.02)  # Small delay to slow down rendering

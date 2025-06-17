@@ -1,5 +1,5 @@
 # Application of Q learning for the swing up task in a simple pendulum system
-# based on the paper by J. Zheng, X. Wang and Y. Yang 2023
+# based on the paper by Alessio Ghio and Oscar E. Ramos 2019
 
 import gymnasium as gym
 from gymnasium import spaces

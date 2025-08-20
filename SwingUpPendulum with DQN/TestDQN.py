@@ -53,7 +53,7 @@ torques = []
 
 # Run a test episode
 done = False
-sim_max_it = env.max_it
+sim_max_it = env.max_it/2
 it = 0
 
 print('Simulating...')
@@ -78,7 +78,10 @@ while not done and it < sim_max_it:
     
     # Check if episode is over
     done = terminated or truncated
-print('Simulation completed')
+    env.render()
+print('Simulation completed\n')
+input("Press any key to close")
+env.close()
 
 plt.figure(figsize=(10, 4))
 plt.plot(thetas, label='θ')

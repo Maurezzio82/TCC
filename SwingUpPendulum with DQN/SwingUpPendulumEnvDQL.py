@@ -3,6 +3,7 @@ from gymnasium import spaces
 import numpy as np
 from scipy.integrate import solve_ivp
 from random import uniform
+import pygame, math
 
 def wrap_to_pi(theta):
     return ((theta + np.pi) % (2 * np.pi)) - np.pi
@@ -112,8 +113,45 @@ class SwingUpPendulum(gym.Env):
         self.observation = np.array([sin_theta, cos_theta, theta_dot], dtype=np.float32)
         return self.observation, reward, terminated, truncated, {}
 
-    def render(self):
-        print(f"Position: {self.state[0]:.2f}, Velocity: {self.state[1]:.2f}")
+    def render(self, mode='human'):
+        if not hasattr(self, 'screen'):
+            pygame.init()
+            pygame.display.init()
+            self.screen_size = (600, 400)
+            self.screen = pygame.display.set_mode(self.screen_size)
+            pygame.display.set_caption("Inverted Pendulum Swing-Up")
+            self.clock = pygame.time.Clock()
+
+        self.screen.fill((255, 255, 255))  # white background
+
+        width, height = self.screen_size
+        cart_y = height // 2
+        cart_width, cart_height = 60, 30
+        pendulum_length = 150  # pixels
+        origin = (width // 2, cart_y)
+
+        # Extract angle
+        theta = self.state[0]
+        pend_x = origin[0] + pendulum_length * math.sin(theta)
+        pend_y = origin[1] + pendulum_length * math.cos(theta)  # flipped
+
+        # Draw cart
+        cart_rect = pygame.Rect(0, 0, cart_width, cart_height)
+        cart_rect.center = origin
+        pygame.draw.rect(self.screen, (0, 0, 0), cart_rect)
+
+        # Draw pendulum rod
+        pygame.draw.line(self.screen, (0, 0, 255), origin, (pend_x, pend_y), 4)
+
+        # Draw pendulum bob
+        pygame.draw.circle(self.screen, (255, 0, 0), (int(pend_x), int(pend_y)), 10)
+
+        pygame.display.flip()
+        self.clock.tick(60)
+
 
     def close(self):
-        pass
+        if hasattr(self, 'screen'):
+            pygame.display.quit()
+            pygame.quit()
+            del self.screen

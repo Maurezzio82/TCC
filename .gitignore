@@ -1,4 +1,4 @@
 *.log
 .venv/
 Examples/gymnasion_cartpole.py
-Trained_Networks
+Trained_Networks/

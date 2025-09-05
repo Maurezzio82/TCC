@@ -1,6 +1,6 @@
 # Test environment for the network trained for the swing up task
 
-from SwingUpPendulumEnvDQL import SwingUpPendulum
+from SwingUpCartPoleEnv import SwingUpCartPole
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -33,7 +33,7 @@ name = input("Enter network name:\n")
 PATH = "Trained_Networks/" + name + ".pth"
 
 Q_net = torch.load(PATH, weights_only=False)
-env = SwingUpPendulum()
+env = SwingUpCartPole(gamma = 0.99, simul_time=60)
 
 import time
 
@@ -41,15 +41,16 @@ import time
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Create the environment
-state, _ = env.reset(start_upright=True)
+state, _ = env.reset()
 
 # Convert state to tensor
 state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
 
-
+x_values = []
+x_dots = []
 thetas = []
 theta_dots = []
-torques = []
+F_us = []
 
 # Run a test episode
 done = False
@@ -69,9 +70,11 @@ while not done and it < sim_max_it:
     state = torch.tensor(next_state, dtype=torch.float32, device=device).unsqueeze(0)
     
     #save states and actions for plotting
-    thetas.append(wrap_to_2pi(env.state[0]))
-    theta_dots.append(env.state[1])
-    torques.append(env.valid_actions[action]/10)
+    x_values.append(env.state[0])
+    x_dots.append(env.state[1])
+    thetas.append(wrap_to_2pi(env.state[2]))
+    theta_dots.append(env.state[3])
+    F_us.append(env.valid_actions[action]/10)
 
     # Render environment
     time.sleep(0.02)  # Small delay to slow down rendering
@@ -84,9 +87,11 @@ input("Press any key to close")
 env.close()
 
 plt.figure(figsize=(10, 4))
+plt.plot(x_values, label = 'x')
+plt.plot(x_dots, label = 'v')
 plt.plot(thetas, label='θ')
 plt.plot(theta_dots, label='ω')
-plt.plot(torques, label = 'τ=u')
+plt.plot(F_us, label = 'F=u')
 plt.xlabel('Time step')
 plt.ylabel('State value')
 plt.title('State Variables Over Time')

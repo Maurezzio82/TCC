@@ -1,4 +1,4 @@
-from SwingUpPendulumEnvDQL import SwingUpPendulum
+from SwingUpCartPoleEnv import SwingUpCartPole
 import math
 import random
 import matplotlib
@@ -11,7 +11,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-env = SwingUpPendulum()
+GAMMA = 0.99
+env = SwingUpCartPole(gamma = GAMMA)
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -71,10 +72,10 @@ class DQN(nn.Module):
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
 BATCH_SIZE = 128
-GAMMA = 0.99
+#GAMMA          already defined above to create the environment
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 1000
+EPS_DECAY = 5000
 TAU = 0.005
 LR = 1e-3
 
@@ -84,8 +85,15 @@ n_actions = env.action_space.n
 state, info = env.reset()
 n_observations = len(state)
 
-policy_net = DQN(n_observations, n_actions).to(device)
-target_net = DQN(n_observations, n_actions).to(device)
+policy_net = DQN(n_observations, n_actions, 128, 64).to(device)
+target_net = DQN(n_observations, n_actions, 128, 64).to(device)
+
+#Comentar isso depois
+if input("Continue training network under name Cart_WIP?(y/n)") == 'y':
+    policy_net = torch.load("Trained_Networks/Cart_WIP.pth", weights_only=False)
+    target_net = torch.load("Trained_Networks/Cart_WIP.pth", weights_only=False)
+
+
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
@@ -179,7 +187,7 @@ def optimize_model():
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
     
-num_episodes = 200
+num_episodes = 600
     
 
 for i_episode in range(num_episodes):
@@ -242,10 +250,11 @@ state, _ = env.reset()
 # Convert state to tensor
 state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
 
-
+x_values = []
+x_dots = []
 thetas = []
 theta_dots = []
-torques = []
+F_us = []
 
 # Run a test episode
 done = False
@@ -253,6 +262,7 @@ sim_max_it = env.max_it
 it = 0
 max_torque = max(env.valid_actions)
 
+print("Simulating...")
 while not done and it < sim_max_it:
     it += 1
     with torch.no_grad():  # No gradient needed for testing
@@ -265,9 +275,11 @@ while not done and it < sim_max_it:
     state = torch.tensor(next_state, dtype=torch.float32, device=device).unsqueeze(0)
     
     #save states and actions for plotting
-    thetas.append(env.state[0])
-    theta_dots.append(env.state[1])
-    torques.append(env.valid_actions[action]/max_torque)
+    x_values.append(env.state[0])
+    x_dots.append(env.state[1])
+    thetas.append(env.state[2])
+    theta_dots.append(env.state[3])
+    F_us.append(env.valid_actions[action]/max_torque)
 
     # Render environment
     time.sleep(0.02)  # Small delay to slow down rendering
@@ -276,9 +288,11 @@ while not done and it < sim_max_it:
     done = terminated or truncated
 
 plt.figure(figsize=(10, 4))
+plt.plot(x_values, label = 'x')
+plt.plot(x_dots, label = 'v')
 plt.plot(thetas, label='θ')
 plt.plot(theta_dots, label='ω')
-plt.plot(torques, label = 'τ=u')
+plt.plot(F_us, label = 'F=u')
 plt.xlabel('Time step')
 plt.ylabel('State value')
 plt.title('State Variables Over Time')
@@ -286,7 +300,7 @@ plt.legend()
 plt.grid(True)
 plt.tight_layout()
 plt.show()
-
+print("done")
 
 env.close()  # Close environment after testing
 

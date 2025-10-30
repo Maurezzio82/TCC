@@ -53,7 +53,7 @@ M = np.array([[0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 
 env = Environment(M, run_DP = True)
 
-PATH = "Trained_Networks/A_matrix_solution.pth"
+PATH = "Trained_Networks/DQN/Adjencency_Matrix/A_matrix_solution.pth"
 policy_net = torch.load(PATH, weights_only=False)
 
 total_reward = 0

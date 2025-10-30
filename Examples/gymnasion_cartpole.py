@@ -1,3 +1,6 @@
+import os
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=false"
+
 import gymnasium as gym
 import math
 import random
@@ -188,7 +191,7 @@ def optimize_model():
 if torch.cuda.is_available() or torch.backends.mps.is_available():
     num_episodes = 600
 else:
-    num_episodes = 200
+    num_episodes = 600
 
 x = input('Train Network? y/n')
 

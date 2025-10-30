@@ -289,4 +289,4 @@ x = input("Do you wish to save the policy network? y/n")
 
 if x == 'y':
     name = input("Select a name with which to save the policy net:\n")
-    torch.save(target_net,"Trained_Networks/" + name + ".pth")
+    torch.save(target_net,"Trained_Networks/DQN/Adjencency_Matrix/" + name + ".pth")

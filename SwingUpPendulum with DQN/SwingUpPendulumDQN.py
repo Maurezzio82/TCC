@@ -290,8 +290,10 @@ plt.show()
 
 env.close()  # Close environment after testing
 
-x = input("Do you wish to save the policy network? y/n")
 
-if x == 'y':
+if input("Do you wish to save the policy network? y/n") == 'y':
     name = input("Select a name with which to save the policy net:\n")
-    torch.save(target_net,"Trained_Networks/" + name + ".pth")
+    torch.save(target_net,"Trained_Networks/DQN/Pendulum/" + name + "_target.pth")
+    torch.save(policy_net,"Trained_Networks/DQN/Pendulum/" + name + "_policy.pth")
+    torch.save(target_net.state_dict(),"Trained_Networks/DQN/Pendulum/state_dicts/" + name + "_target.pth")
+    torch.save(policy_net.state_dict(),"Trained_Networks/DQN/Pendulum/state_dicts/" + name + "_policy.pth")    

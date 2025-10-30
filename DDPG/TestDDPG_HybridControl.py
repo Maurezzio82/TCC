@@ -12,8 +12,7 @@ import torch.nn.functional as F
 # value go from 0 to 2pi instead of from -pi to pi
 def wrap_to_2pi(theta):
     return theta % (2 * np.pi)
-def deg2rad(theta):
-    return theta*np.pi/180.0
+
 #================================== Actor-Critic NN Module ==================================#
 
 def mlp(sizes, activation, output_activation=nn.Identity):
@@ -60,13 +59,18 @@ class ActorCritic(nn.Module):
         self.q = QFunction(obs_dim, act_dim, hidden_sizes, activation)
 
 #============================================================================================#
+# LQR gain
+
+K = np.array([-15.1744, -18.2369, -134.4547, -36.9102])
+# ganhos de x, xd, th, thd
 
 
+#============================================================================================#
 name = input("Enter network name:\n")
 PATH = "Trained_Networks/DDPG/Cartpole/" + name + ".pth"
 
 ac = torch.load(PATH, weights_only=False)
-env = CartPole(gamma = 0.99, simul_time=60)
+env = CartPole(gamma = 0.99, simul_time=20)
 act_max = env.action_space.high[0]
 
 import time
@@ -76,9 +80,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Create the environment
 state, _ = env.reset(start_upright=True)
-env.state[2] = deg2rad(0.0)
+
+#env.state[0] = 2.0
+
 # Convert state to tensor
-state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+state_nn = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
 
 x_values = []
 x_dots = []
@@ -88,27 +94,42 @@ F_us = []
 
 # Run a test episode
 done = False
-sim_max_it = env.max_it/2
+sim_max_it = env.max_it/5
 it = 0
 
+
 print('Simulating...')
+
 while not done and it < sim_max_it:
     it += 1
+    x, x_dot, sin_th, cos_th, th_dot = state
+    th = np.asin(sin_th)
+    state_LQR = np.array([x, x_dot, th, th_dot], dtype=np.float32)
+    LQR_u = -(K*state_LQR).sum()
+    
     with torch.no_grad():  # No gradient needed for testing
-        action = ac.pi(state).cpu().numpy().astype(np.float32).squeeze(0)
+        action_NN = ac.pi(state_nn).cpu().numpy().astype(np.float32).squeeze(0)
+    
+    Linearity_factor = np.exp(-(2.6*th)**6)
+        
+    action = LQR_u*Linearity_factor + action_NN.item()*(1-Linearity_factor)
+    action = np.clip(action, -act_max, act_max)
+
+
 
     # Take action
     next_state, reward, terminated, truncated, _ = env.step(action)
 
     # Update state
-    state = torch.tensor(next_state, dtype=torch.float32, device=device).unsqueeze(0)
+    state = next_state
+    state_nn = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     
     #save states and actions for plotting
     x_values.append(env.state[0])
     x_dots.append(env.state[1])
     thetas.append(wrap_to_2pi(env.state[2]))
     theta_dots.append(env.state[3])
-    F_us.append(action/act_max)
+    F_us.append(5*action/act_max)
 
     # Render environment
     time.sleep(0.02)  # Small delay to slow down rendering

@@ -8,18 +8,21 @@ import pygame, math
 def wrap_to_pi(theta):
     return ((theta + np.pi) % (2 * np.pi)) - np.pi
 
+def deg2rad(theta):
+    return theta*np.pi/180
+
 def boundary_potential(x, x_max, A = 50, a = 0.2 ):
     return  A/(1+((x-x_max)/a)**2) + A/(1+((x+x_max)/a)**2)
 
-def upright_potential(theta, A = 150, a = 0.1):
-    return A / (1 + (theta / a)**2)
+def upright_potential(theta ):#, A = 150, a = 0.1
+    return -np.abs(theta)/np.pi #A / (1 + (theta / a)**2)
     
 
-class SwingUpCartPole(gym.Env):
+class CartPole(gym.Env):
     metadata = {'render.modes': ['console']}
     
-    def __init__(self, gamma, simul_time = 25):
-        super(SwingUpCartPole, self).__init__()
+    def __init__(self, gamma, simul_time = 15):
+        super(CartPole, self).__init__()
         
         self.gamma = gamma          #temporal discount factor (necessary for the reward system)
               
@@ -28,28 +31,24 @@ class SwingUpCartPole(gym.Env):
         self.M = 2.0    # mass of the cart
         self.L = 1.0    # pendulum length
         #self.b = 0.01   # viscous friction coefficient
-        self.g = 9.8    # gravitational acceleration
+        self.g = 9.81    # gravitational acceleration
 
         # Time step
         self.dt = 0.025
         
         # Action Constraint
-        MaxForce = 5.0
+        MaxForce = 70.0
 
-        # Discrete actions
-        self.valid_actions = np.array([-MaxForce,-MaxForce/2, 0, MaxForce/2, MaxForce])
-        self.action_space = spaces.Discrete(len(self.valid_actions))
-        # --------------- = -------------------- #
         
         # Action and observation space
         # Control input u is bounded
         
-        #self.action_space = spaces.Box(
-        #    low=np.array([-MaxForce], dtype=np.float32),
-        #    high=np.array([MaxForce], dtype=np.float32),
-        #    dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=np.array([-MaxForce], dtype=np.float32),
+            high=np.array([MaxForce], dtype=np.float32),
+            dtype=np.float32)
         
-        self.x_max = 10.0
+        self.x_max = 5.0
         
         # Observation: x, x', sin(θ), cos(θ), θ'
         self.observation_space = spaces.Box(
@@ -61,24 +60,30 @@ class SwingUpCartPole(gym.Env):
         self.reached_upright = False                              
         self.state = None
         self.current_it = 0                         #current iteration updated in the reset and step functions
-        self.max_it = simul_time/self.dt                    #max 25s of simulation time (for dt = 0.025, max_it = 800)
+        self.max_it = round(simul_time/self.dt)                    #max 25s of simulation time (for dt = 0.025, max_it = 800)
 
 
 
     def reset(self, seed=None, options=None, start_upright = False):
         super().reset(seed=seed)
         self.current_it = 0
-        angle = np.pi + uniform(-0.2, 0.2)                  # the pendulum is started close to the stable stationary point
+        
+        x_start = 0#uniform(-self.x_max/4, self.x_max/4)
+        
         if start_upright:
-            self.reached_upright = 2
-            angle = uniform(-0.1, 0.1)
-                   
-        self.state = np.array([0.0, 0.0, angle, 0.0], dtype=np.float32)  # initial position and velocity
-        self.reached_upright = False
+            angle = uniform(-deg2rad(40), deg2rad(40))
+            self.reached_upright = True
+            self.started_upright = True
+        else:
+            angle = np.pi + uniform(-0.4, 0.4)                  # the pendulum is started close to the stable stationary point
+            self.reached_upright = False
+            self.started_upright = False
+            
+        self.state = np.array([x_start, 0.0, angle, 0.0], dtype=np.float32)  # initial position and velocity
         
         sin_theta = np.sin(angle)
         cos_theta = np.cos(angle)
-        self.observation = np.array([0.0, 0.0, sin_theta, cos_theta, 0.0], dtype=np.float32)
+        self.observation = np.array([x_start, 0.0, sin_theta, cos_theta, 0.0], dtype=np.float32)
         
         return self.observation, {}
 
@@ -108,27 +113,26 @@ class SwingUpCartPole(gym.Env):
         x_ddot, theta_ddot = qdd
         return np.array([x_dot, x_ddot, theta_dot, theta_ddot])
 
-    def step(self, action_idx):
+    def step(self, action):
         
         terminated = False
         truncated = False
         self.current_it += 1
     
-        action = self.valid_actions[action_idx]
         u = float(action)
             
         # Integrate ODE
         sol = solve_ivp(self.dynamics, [0, self.dt], self.state, args=(u,), t_eval=[self.dt])
 
         # Update state
-        prev_state = self.state
+        #prev_state = self.state
         self.state = sol.y[:, -1] # x, xd, θ, θd
         
         # WrapToPi
         self.state[2] = wrap_to_pi(self.state[2])
         
         x, x_dot, theta, theta_dot = self.state
-        _x, _x_dot, _theta, _theta_dot = prev_state
+        #_x, _x_dot, _theta, _theta_dot = prev_state
 
 
         upright_now = abs(theta) < 0.1 and abs(theta_dot) < 0.5 and abs(x_dot) < 1.0     
@@ -136,28 +140,35 @@ class SwingUpCartPole(gym.Env):
         if upright_now:
             self.reached_upright = True
 
-        # Reward System
-        
-        # Directional shaping: encourage velocity toward upright
-        #direction_bonus = -0.5 * theta_dot * np.tanh(10 * theta)
+        #=============== Reward System ===============#
 
         # Smooth reward shaping toward upright
-        shaping_reward =  self.gamma*upright_potential(theta) - upright_potential(_theta)
-
+        # shaping_reward =  self.gamma*upright_potential(theta) - upright_potential(_theta)
+        
         # Cost terms
-        cost = 0.5*x**2 + 0.1*x_dot**2 + theta**2 + 0.2*theta_dot**2 + 0.01*u**2 
+        cost = 3.0*x**2 + 0.1*x_dot**2 + 2.0*theta**2 + 0.2*theta_dot**2 + 0.01*u**2 #1.0*x**2 + 0.1*x_dot**2 + 2*theta**2 + 0.2*theta_dot**2 + 0.01*u**2 
                 # the max value of this cost should be around 70 in worst case cenario
 
         # Punishment for coming close to the boundary
         # if the current position is closer to either boundary than the previous one, there should be a cost to it
-        shaping_cost = self.gamma*boundary_potential(x, self.x_max) - boundary_potential(_x, self.x_max)
+        #shaping_cost = self.gamma*boundary_potential(x, self.x_max) - boundary_potential(_x, self.x_max)
 
-        reward = (shaping_reward - cost - shaping_cost)/50
 
-            
-        if self.state[0]>self.x_max or self.state[0]<-self.x_max:
-            terminated = True
+        # shaping_cost and shaping reward are omited for preliminary testing
+        # a +1 is added to ensure a positive reward. Since the episode ends when the 
+        # cart goes out of bound, the agent was practicing some reward hacking by going
+        # straight to the boundary to end the episode, thus ending the negative reward
+        reward = 1 - 0.02*cost
+        #reward = np.clip(reward, -1.0, 1.0) # np.tanh(reward)
 
+        #=============================================#
+        
+        if x>self.x_max or x<-self.x_max:
+            truncated = True
+
+        if abs(theta) > np.pi/2 and self.started_upright:
+            truncated = True
+        
         if self.current_it >= self.max_it:
             truncated = True
         

@@ -1,10 +1,14 @@
-from SwingUpCartPoleEnv import SwingUpCartPole
+import os
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=false"
+
+from CartPoleEnv import SwingUpCartPole
 import math
 import random
 import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -13,7 +17,7 @@ import torch.nn.functional as F
 
 GAMMA = 0.99
 env = SwingUpCartPole(gamma = GAMMA)
-
+print(env.valid_actions)
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
 if is_ipython:
@@ -50,7 +54,7 @@ class ReplayMemory(object):
     
 class DQN(nn.Module):
 
-    def __init__(self, n_observations, n_actions, n_l1 = 256, n_l2 = 128):
+    def __init__(self, n_observations, n_actions, n_l1 = 128, n_l2 = 128):
         super(DQN, self).__init__()
         self.layer1 = nn.Linear(n_observations, n_l1)
         self.layer2 = nn.Linear(n_l1, n_l2)
@@ -75,9 +79,14 @@ BATCH_SIZE = 128
 #GAMMA          already defined above to create the environment
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 5000
-TAU = 0.005
-LR = 1e-3
+EPS_DECAY = 50000
+TAU = 0.001
+LR = 1e-4
+
+# Stop criterion hyper parameters
+REWARD_THRESHOLD = 550
+WINDOW = 20
+EPSILON = 5
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -85,14 +94,8 @@ n_actions = env.action_space.n
 state, info = env.reset()
 n_observations = len(state)
 
-policy_net = DQN(n_observations, n_actions, 128, 64).to(device)
-target_net = DQN(n_observations, n_actions, 128, 64).to(device)
-
-#Comentar isso depois
-if input("Continue training network under name Cart_WIP?(y/n)") == 'y':
-    policy_net = torch.load("Trained_Networks/Cart_WIP.pth", weights_only=False)
-    target_net = torch.load("Trained_Networks/Cart_WIP.pth", weights_only=False)
-
+policy_net = DQN(n_observations, n_actions, 128, 128).to(device)
+target_net = DQN(n_observations, n_actions, 128, 128).to(device)
 
 target_net.load_state_dict(policy_net.state_dict())
 
@@ -119,19 +122,19 @@ def select_action(state):
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
 
-episode_cost = []
+episode_reward = []
 
-def plot_cost(show_result=False):
+def plot_reward(show_result=False):
     plt.figure(1)
-    cost_t = torch.tensor(episode_cost, dtype=torch.float)
+    reward_t = torch.tensor(episode_reward, dtype=torch.float)
     if show_result:
         plt.title('Result')
     else:
         plt.clf()
         plt.title('Training...')
     plt.xlabel('Episode')
-    plt.ylabel('Cost')
-    plt.plot(cost_t.numpy(), label='Cost')
+    plt.ylabel('reward')
+    plt.plot(reward_t.numpy(), label='reward')
 
     plt.pause(0.001)  # pause a bit so that plots are updated
     if is_ipython:
@@ -187,14 +190,18 @@ def optimize_model():
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
     
-num_episodes = 600
     
+    
+num_episodes = 2500
+train_to_estabilize = True   
+
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
-    total_cost = 0
-    state, info = env.reset()
+    total_reward = 0
+    state, info = env.reset(start_upright=train_to_estabilize)
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+    episode_steps = 0
     for t in count():
         action = select_action(state)
         observation, reward, terminated, truncated, _ = env.step(action.item())
@@ -223,17 +230,35 @@ for i_episode in range(num_episodes):
             target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
         target_net.load_state_dict(target_net_state_dict)
 
-        total_cost -= reward
+        total_reward += reward.item()
+        
+        
         if done:
-            if env.reached_upright:
+            if env.reached_upright and not env.started_upright:
                 print('Pendulum is upright')
-            
-            episode_cost.append(total_cost)
-            plot_cost()
+                print(total_reward.item())
+            episode_reward.append(total_reward)
+            plot_reward()
+            episode_steps = t
             break
-
+        
+    if i_episode % 20 == 0:
+        # You can recompute eps_threshold here using steps_done
+        eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps_done / EPS_DECAY)
+        print(f"Episode {i_episode:4d} | Steps: {steps_done:6d} | "
+              f"Eps: {eps_threshold:.3f} | Replay size: {len(memory):5d} | "
+              f"Episode length: {episode_steps:3d} | Total reward: {total_reward:.2f} | "
+              f"Reached Upright Position: {env.reached_upright}")
+        
+    if len(episode_reward) >= 2 * WINDOW:
+        recent_avg = np.mean(episode_reward[-WINDOW:])
+        previous_avg = np.mean(episode_reward[-2*WINDOW:-WINDOW])
+        if abs(recent_avg - previous_avg) < EPSILON and recent_avg >= REWARD_THRESHOLD:
+            print(f"\nStopping early at episode {i_episode}: "
+                  f"Average reward {recent_avg:.2f} stabilized (≥ {REWARD_THRESHOLD}).")
+            break
 print('Complete')
-plot_cost(show_result=True)
+plot_reward(show_result=True)
 plt.ioff()
 plt.show()
 
@@ -245,7 +270,7 @@ import time
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Create the environment
-state, _ = env.reset()
+state, _ = env.reset(start_upright=train_to_estabilize)
 
 # Convert state to tensor
 state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
@@ -286,6 +311,8 @@ while not done and it < sim_max_it:
     
     # Check if episode is over
     done = terminated or truncated
+    if terminated:
+        print("here")
 
 plt.figure(figsize=(10, 4))
 plt.plot(x_values, label = 'x')
@@ -304,8 +331,11 @@ print("done")
 
 env.close()  # Close environment after testing
 
-x = input("Do you wish to save the policy network? y/n")
-
-if x == 'y':
+if input("Do you wish to save the policy network? y/n") == 'y':
     name = input("Select a name with which to save the policy net:\n")
-    torch.save(target_net,"Trained_Networks/" + name + ".pth")
+    torch.save(target_net,"Trained_Networks/DQN/Cartpole/" + name + "_target.pth")
+    torch.save(policy_net,"Trained_Networks/DQN/Cartpole/" + name + "_policy.pth")
+    torch.save(target_net.state_dict(),"Trained_Networks/DQN/Cartpole/state_dicts/" + name + "_target.pth")
+    torch.save(policy_net.state_dict(),"Trained_Networks/DQN/Cartpole/state_dicts/" + name + "_policy.pth")    
+    
+ 

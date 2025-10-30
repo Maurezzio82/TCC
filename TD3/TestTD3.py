@@ -8,12 +8,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# This function is only for the purposes of having the angle
-# value go from 0 to 2pi instead of from -pi to pi
 def wrap_to_2pi(theta):
     return theta % (2 * np.pi)
 def deg2rad(theta):
-    return theta*np.pi/180.0
+    return theta*np.pi/180
+
 #================================== Actor-Critic NN Module ==================================#
 
 def mlp(sizes, activation, output_activation=nn.Identity):
@@ -57,13 +56,16 @@ class ActorCritic(nn.Module):
 
         # build policy and value functions
         self.pi = Actor(obs_dim, act_dim, hidden_sizes, activation, act_limit)
-        self.q = QFunction(obs_dim, act_dim, hidden_sizes, activation)
+        # For TD3, use two Q-functions (twin critics)
+        self.q1 = QFunction(obs_dim, act_dim, hidden_sizes, activation)  #added line: [twin critic q1]
+        self.q2 = QFunction(obs_dim, act_dim, hidden_sizes, activation)  #added line: [twin critic q2]
+
 
 #============================================================================================#
 
 
 name = input("Enter network name:\n")
-PATH = "Trained_Networks/DDPG/Cartpole/" + name + ".pth"
+PATH = "Trained_Networks/TD3/Cartpole/" + name + ".pth"
 
 ac = torch.load(PATH, weights_only=False)
 env = CartPole(gamma = 0.99, simul_time=60)
@@ -75,8 +77,8 @@ import time
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Create the environment
-state, _ = env.reset(start_upright=True)
-env.state[2] = deg2rad(0.0)
+state, _ = env.reset(start_upright=False)
+env.state[0] = 0.0
 # Convert state to tensor
 state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
 
@@ -88,7 +90,7 @@ F_us = []
 
 # Run a test episode
 done = False
-sim_max_it = env.max_it/2
+sim_max_it = env.max_it/4
 it = 0
 
 print('Simulating...')
